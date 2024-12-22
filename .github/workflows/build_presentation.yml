@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: npm install @marp-team/marp-cli
+
+      - name: Generate HTML from Markdown and remove obsolete files
+        run: |
+          # Create html directory if it doesn't exist
+          mkdir -p html
+
+          # Generate HTML for all Markdown files
+          for file in md/*.md; do
+            filename=$(basename "$file" .md)
+            npx @marp-team/marp-cli@latest "$file" -o "html/${filename}.html"
+          done
+
+          # Remove HTML files without corresponding Markdown files
+          for html_file in html/*.html; do
+            if [ -f "$html_file" ] && [ "$(basename "$html_file")" != "index.html" ]; then
+              md_file="md/$(basename "$html_file" .html).md"
+              if [ ! -f "$md_file" ]; then
+                rm "$html_file"
+              fi
+            fi
+          done
+      
+      - name: Generate index.html
+        run: |
+          echo "<html><body><h1 style='text-align: center;'>Presentations</h1><ul style='list-style-type: none;'>" > html/index.html
+          for file in html/*.html; do
+            if [ "$(basename "$file")" != "index.html" ]; then
+              filename=$(basename "$file")
+              echo "<li style='margin: 10px;'><a href=\"$filename\" style='text-decoration: none; color: #148ec8;'>$(basename "$filename" .html)</a></li>" >> html/index.html
+            fi
+          done
+          echo "</ul></body></html>" >> html/index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: './html'
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
